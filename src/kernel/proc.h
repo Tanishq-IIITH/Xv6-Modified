@@ -18,7 +18,7 @@ struct context
   uint64 s10;
   uint64 s11;
 };
-extern int ct;
+
 // Per-CPU state.
 struct cpu
 {
@@ -91,10 +91,7 @@ enum procstate
   RUNNING,
   ZOMBIE
 };
-
-// for deciding scheduling policy
-extern int flag_schd;
-
+extern int flag_scheduler;
 // Per-process state
 struct proc
 {
@@ -119,24 +116,20 @@ struct proc
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  uint rtime;                  // How long the process ran for
+  uint ctime;                  // When was the process created
+  uint etime;                  // When did the process exited
 
-  // alarm init
-  int time_length;
-  int curr_ticks;
-  int check_sig;
-  uint64 handler;
-  struct trapframe *store_frame;
+// for PBS
+  int static_priority; // static priority
+  int RBI;
+  int num_run;
+  int runtime; // total time the process was running
+  int dynamic_priority; // dynamic priority
+  int wtime; // total time the process was waiting
+  int stime; // total time the process was sleeping
+  int last_sleep; // last time the process was sleeping
 
-  // for scheduling
-  uint create_time;  // creation time
-  uint running_time; // time spent on running
-  uint exit_time;    // time when the process exited
-  uint num_runs;     // number of runs
-
-  // for MLFQ
-  uint qetime;         // Entry time in the current queue
-  uint time_inside_queue[5]; // Number of ticks done in each queue
-  uint queue_no;        // Current queue number of the process
 };
 
 extern struct proc proc[NPROC];

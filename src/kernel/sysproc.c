@@ -36,23 +36,6 @@ sys_wait(void)
 }
 
 uint64
-sys_waitx(void)
-{
-  uint64 addr, addr1, addr2;
-  uint wtime, running_time;
-  argaddr(0, &addr);
-  argaddr(1, &addr1); // user virtual memory
-  argaddr(2, &addr2);
-  int ret = waitx(addr, &wtime, &running_time);
-  struct proc* p = myproc();
-  if (copyout(p->pagetable, addr1,(char*)&wtime, sizeof(int)) < 0)
-    return -1;
-  if (copyout(p->pagetable, addr2,(char*)&running_time, sizeof(int)) < 0)
-    return -1;
-  return ret;
-}
-
-uint64
 sys_sbrk(void)
 {
   uint64 addr;
@@ -109,20 +92,50 @@ sys_uptime(void)
   return xticks;
 }
 
-uint64 sys_sigreturn(void)
+uint64
+sys_waitx(void)
 {
+  uint64 addr, addr1, addr2;
+  uint wtime, rtime;
+  argaddr(0, &addr);
+  argaddr(1, &addr1); // user virtual memory
+  argaddr(2, &addr2);
+  int ret = waitx(addr, &wtime, &rtime);
   struct proc *p = myproc();
-  p->store_frame->kernel_sp = p->trapframe->kernel_sp;
-  p->store_frame->kernel_trap = p->trapframe->kernel_trap;
-  p->store_frame->kernel_satp = p->trapframe->kernel_satp;
-  p->store_frame->kernel_hartid = p->trapframe->kernel_hartid;
-  *(p->trapframe) = *(p->store_frame);
-  p->check_sig = 0;
-  return p->trapframe->a0;
+  if (copyout(p->pagetable, addr1, (char *)&wtime, sizeof(int)) < 0)
+    return -1;
+  if (copyout(p->pagetable, addr2, (char *)&rtime, sizeof(int)) < 0)
+    return -1;
+  return ret;
 }
 
 uint64
-sys_getreadcount(void)
+sys_set_priority()
 {
-  return ct;
+
+  int priority, pid, old = 101, old2 = 101;
+  argint(1, &priority);
+  argint(0, &pid);
+
+  if (pid < 0 || priority < 0)
+  {
+    return -1;
+  }
+
+  for (struct proc *p = proc; p < &proc[NPROC]; p++)
+  {
+    acquire(&p->lock);
+    if (p->pid == pid)
+    {
+      p->RBI = 25;
+      old = p->static_priority;
+      old2 = p->dynamic_priority;
+      p->static_priority = priority;
+      p->dynamic_priority = p->static_priority + 25;
+    }
+    release(&p->lock);
+  }
+  if (priority + 25 < old2)
+    yield();
+  return old;
 }

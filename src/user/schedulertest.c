@@ -4,7 +4,7 @@
 #include "kernel/fcntl.h"
 
 #define NFORK 10
-#define IO 5
+#define IO 4
 
 int main()
 {
@@ -13,24 +13,43 @@ int main()
   int twtime = 0, trtime = 0;
   for (n = 0; n < NFORK; n++)
   {
+    for (int j = 0; j < 100000000; ++j)
+    {
+    };
     pid = fork();
+#ifdef PBS
+    if (pid != 0)
+      set_priority(pid, 50 - IO + n); // Will only matter for PBS, set lower priority for IO bound processes
+#endif
     if (pid < 0)
+    {
+      printf("ERR %d\n", n);
       break;
+    }
     if (pid == 0)
     {
       if (n < IO)
       {
+        for (uint64 i = 0; i < 10; i++)
+        {
+        };
         sleep(200); // IO bound processes
       }
       else
       {
-        for (volatile int i = 0; i < 1000000000; i++)
+        for (uint64 i = 0; i < n * 1000000000; i++)
         {
-        } // CPU bound process
+        }; // CPU bound process
       }
-      printf("Process %d finished\n", n);
+      // printf("Process %d finished\n", n);
       exit(0);
     }
+    else
+    {
+#ifdef PBS
+      set_priority(pid, 50 - IO + n); // Will only matter for PBS, set lower priority for IO bound processes
+#endif
+    };
   }
   for (; n > 0; n--)
   {

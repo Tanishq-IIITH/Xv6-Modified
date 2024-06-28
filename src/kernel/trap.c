@@ -16,6 +16,68 @@ void kernelvec();
 
 extern int devintr();
 
+// -1 means cannot allocate memory
+// 0 means OK
+// 1 means the address is invalid
+int Fault_Handler(void *virtual_add, pagetable_t page_t)
+{
+  struct proc *p = myproc();
+
+  // Check if the virtual address is within a valid range
+  int check_valid_add = ((uint64)virtual_add < PGROUNDDOWN(p->trapframe->sp) - PGSIZE);
+  check_valid_add |= ((uint64)virtual_add > PGROUNDDOWN(p->trapframe->sp));
+  check_valid_add &= ((uint64)virtual_add < MAXVA);
+
+  if (check_valid_add)
+  {
+    uint64 page;
+    uint flags;
+    pte_t *pte;
+
+    // Round down the virtual address to the page boundary
+    virtual_add = (void *)PGROUNDDOWN((uint64)virtual_add);
+    pte = walk(page_t, (uint64)virtual_add, 0);
+
+    // Check if the page table entry is present and if the page is mapped
+    int check_valid = (pte && (page = PTE2PA(*pte)));
+    if (check_valid)
+    {
+      flags = PTE_FLAGS(*pte);
+
+      // Check if the page is copy-on-write
+      int check_COW = flags & PTE_C;
+      if (check_COW)
+      {
+        // Update the page table entry to mark it as writable
+        flags |= PTE_W;
+        flags &= (~PTE_C);
+
+        // Allocate a new page and copy the contents
+        char *mem = kalloc();
+        int check_mem = (mem != 0);
+        if (check_mem)
+        {
+          memmove(mem, (void *)page, PGSIZE);
+
+          // Update the page table entry to point to the new page
+          *pte = flags;
+          *pte |= PA2PTE(mem);
+
+          // Free the old page
+          kfree((void *)page);
+
+          return 0;
+        }
+        else
+          return -1; // Memory allocation failed
+      }
+      return 0;
+    }
+    else return -1; // Page not mapped
+  }
+  else
+    return 1; // Invalid address
+}
 void trapinit(void)
 {
   initlock(&tickslock, "time");
@@ -27,7 +89,11 @@ void trapinithart(void)
   w_stvec((uint64)kernelvec);
 }
 
-int val[4] = {1, 3, 9, 15};
+int abs(int a){
+  if(a>0) return a;
+  else return -a;
+}
+
 //
 // handle an interrupt, exception, or system call from user space.
 // called from trampoline.S
@@ -69,6 +135,17 @@ void usertrap(void)
   {
     // ok
   }
+  else if (r_scause() == 15)
+  {
+    if (r_stval())
+    {
+      int res = Fault_Handler((void *)r_stval(), p->pagetable);
+      if (abs(res)==1)
+        p->killed = abs(res);
+    }
+    else
+      p->killed = 1;
+  }
   else
   {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
@@ -80,51 +157,8 @@ void usertrap(void)
     exit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if (flag_schd == 0 || flag_schd == 3)
-  {
-    if (which_dev == 2)
-    {
-      acquire(&p->lock);
-      printf("%d %d %d\n", ticks, p->pid, p->queue_no);
-      release(&p->lock);
-      if (flag_schd == 3)
-      {
-        struct proc *p = myproc();
-        if ((ticks - p->qetime) > (val[p->queue_no]))
-        {
-          p->time_inside_queue[p->queue_no] += (ticks - p->qetime);
-          if (p->queue_no < 3)
-          {
-            p->queue_no++;
-            printf("%d %d %d\n", ticks, p->pid, p->queue_no);
-          }
-          p->qetime = ticks;
-          yield();
-        }
-      }
-      else
-      {
-        yield();
-      }
-    }
-  }
-
-  if (flag_schd != 3)
-  {
-    if (which_dev == 2)
-    {
-      p->curr_ticks++;
-      // printf("%d %d %d", p->till_tick, p->pid, p->current_queue_number);
-      if (!p->check_sig && p->time_length && p->curr_ticks >= p->time_length)
-      {
-        p->check_sig = 1;
-        p->curr_ticks = 0;
-        *(p->store_frame) = *(p->trapframe);
-        p->trapframe->epc = p->handler;
-      }
-      yield();
-    }
-  }
+  if (which_dev == 2)
+    yield();
 
   usertrapret();
 }
@@ -196,29 +230,8 @@ void kerneltrap()
   }
 
   // give up the CPU if this is a timer interrupt.
-
-  if (flag_schd == 0 || flag_schd == 3)
-  {
-    if (which_dev == 2 && myproc() != 0 && myproc()->state == RUNNING)
-    {
-      if (flag_schd == 3)
-      {
-        struct proc *p = myproc();
-        if ((ticks - p->qetime) > (val[p->queue_no]))
-        {
-          p->time_inside_queue[p->queue_no] += (ticks - p->qetime);
-          if (p->queue_no < 3)
-            p->queue_no++;
-          p->qetime = ticks;
-          yield();
-        }
-      }
-      else
-      {
-        yield();
-      }
-    }
-  }
+  if (which_dev == 2 && myproc() != 0 && myproc()->state == RUNNING)
+    yield();
 
   // the yield() may have caused some traps to occur,
   // so restore trap registers for use by kernelvec.S's sepc instruction.
@@ -230,7 +243,21 @@ void clockintr()
 {
   acquire(&tickslock);
   ticks++;
-  up_time();
+  update_time();
+  // for (struct proc *p = proc; p < &proc[NPROC]; p++)
+  // {
+  //   acquire(&p->lock);
+  //   if (p->state == RUNNING)
+  //   {
+  //     printf("here");
+  //     p->rtime++;
+  //   }
+  //   // if (p->state == SLEEPING)
+  //   // {
+  //   //   p->wtime++;
+  //   // }
+  //   release(&p->lock);
+  // }
   wakeup(&ticks);
   release(&tickslock);
 }

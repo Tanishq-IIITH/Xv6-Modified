@@ -14,47 +14,75 @@ void freerange(void *pa_start, void *pa_end);
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
 
-struct run {
+struct run
+{
   struct run *next;
 };
 
-struct {
+struct
+{
   struct spinlock lock;
   struct run *freelist;
 } kmem;
 
-void
-kinit()
+// page_ref
+struct spinlock page_lock;
+int num_pages[(PGROUNDUP(PHYSTOP)) / PGSIZE];
+
+void increment_num_page(void *phy_ad)
 {
-  initlock(&kmem.lock, "kmem");
-  freerange(end, (void*)PHYSTOP);
+  acquire(&page_lock);
+  int actual = ((uint64)phy_ad) / PGSIZE;
+  num_pages[actual]++;
+  release(&page_lock);
 }
 
-void
-freerange(void *pa_start, void *pa_end)
+void kinit()
+{
+  initlock(&page_lock, "page_ref");
+  initlock(&kmem.lock, "kmem");
+  freerange(end, (void *)PHYSTOP);
+}
+
+void freerange(void *pa_start, void *pa_end)
 {
   char *p;
-  p = (char*)PGROUNDUP((uint64)pa_start);
-  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
+  p = (char *)PGROUNDUP((uint64)pa_start);
+  for (; p + PGSIZE <= (char *)pa_end; p += PGSIZE)
+  {
+    acquire(&page_lock);
+    if (num_pages[((uint64)p) / PGSIZE] < 0)
+      panic("dec_p_ref");
+    num_pages[((uint64)p) / PGSIZE]++;
+    release(&page_lock);
     kfree(p);
+  }
 }
 
 // Free the page of physical memory pointed at by pa,
 // which normally should have been returned by a
 // call to kalloc().  (The exception is when
 // initializing the allocator; see kinit above.)
-void
-kfree(void *pa)
+void kfree(void *pa)
 {
   struct run *r;
 
-  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
+  if (((uint64)pa % PGSIZE) != 0 || (char *)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
+
+  acquire(&page_lock);
+  if (num_pages[((uint64)pa) / PGSIZE] <= 0)
+    panic("dec_p_ref");
+  num_pages[((uint64)pa) / PGSIZE]--;
+  release(&page_lock);
+
+  if (num_pages[((uint64)pa) / PGSIZE] > 0)
+    return;
 
   // Fill with junk to catch dangling refs.
   memset(pa, 1, PGSIZE);
 
-  r = (struct run*)pa;
+  r = (struct run *)pa;
 
   acquire(&kmem.lock);
   r->next = kmem.freelist;
@@ -72,11 +100,18 @@ kalloc(void)
 
   acquire(&kmem.lock);
   r = kmem.freelist;
-  if(r)
+  if (r)
     kmem.freelist = r->next;
   release(&kmem.lock);
 
-  if(r)
-    memset((char*)r, 5, PGSIZE); // fill with junk
-  return (void*)r;
+  if (r)
+  {
+    memset((char *)r, 5, PGSIZE); // fill with junk
+    acquire(&page_lock);
+    if (num_pages[((uint64)r) / PGSIZE] < 0)
+      panic("dec_p_ref");
+    num_pages[((uint64)r) / PGSIZE] += 1;
+    release(&page_lock);
+  }
+  return (void *)r;
 }

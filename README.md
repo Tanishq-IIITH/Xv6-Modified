@@ -1,60 +1,60 @@
-# Testing system calls
+# xv6
 
-## Running Tests for getreadcount
+## Priority-based Scheduling
 
-Running tests for this syscall is easy. Just do the following from
-inside the `initial-xv6` directory:
+This is a priority-based scheduling policy that chooses the process with the highest priority to execute. If two or more processes have the same priority, we break the tie using the number of times the process has been scheduled. If the tie persists, use the process's start time to break it (processes with lower start times are scheduled earlier).
 
-```sh
-prompt> ./test-getreadcounts.sh
+We have static priority and dynamic priority here. Dynamic priority determines scheduling by varying with running, waiting and sleeping time. Dynamic priority is calculated using static priority.
+
+
+#### Implementation
+
+-   Once again, we use a for loop to find the process with the highest priority (lowest dynamic priority),  In case two or more processes have the same priority, we use the number of times the process has been scheduled to break the tie. If the tie remains, use the start-time of the process to break the tie(processes with lower start times should be scheduled further). Then the selected process is scheduled to run.
+
+-   The number of ticks,stime,runtime,wtime,RBI and Dynamic Priority are stored in struct proc::s. In the Updatetime() function, the values of these parameters are updated accordingly.
+In the same loop i have updated the RBI and Dynamic Priority of each process.
+
+-   struct proc'  stores the static priority (50 by default). When the process to be scheduled is selected, the RBI and dynamic priority are calculated in the loop.
+
+-   A process's static priority can be modified using the 'set priority()' system call. In this function, i have updated the static priority of the process and also set the RBI to 25 and Dynamic Priority of the process accordingly and also returns the old priority.
+
+```bash
+setpriority [priority] [pid]
 ```
 
-If you implemented things correctly, you should get some notification
-that the tests passed. If not ...
 
-The tests assume that xv6 source code is found in the `src/` subdirectory.
-If it's not there, the script will complain.
+# Effectiveness of Static Priority (SP): 
+### Observation:
+- SP represents the inherent priority of a process which ranges from 0 to 100. Lower SP values indicate higher priority for scheduling. It's default value for each process is 50. Analysis: Decreasing the SP(Static priority) of a process increases its priority, making it more likely to be scheduled. Increasing the SP lowers the priority, potentially delaying the process's execution. Outcome : So we can make a process to get scheduled fast or gets delayed by using SP(Static priority) parameter of a process by using set_priority system call.
 
-The test script does a one-time clean build of your xv6 source code
-using a newly generated makefile called `Makefile.test`. You can use
-this when debugging (assuming you ever make mistakes, that is), e.g.:
+# Effectiveness of RBI (RTime, WTime, STime):
+### Observation:
+- RBI is a weighted sum of Running Time (RTime), Sleeping Time (STime), and Waiting Time (WTime). RBI adjusts the dynamic priority based on recent behavior. It's default value will be 25 for each process.
+### Running Time (RTime):
+- The total time the process has been running since it was last scheduled. A process with high RTime might have a higher RBI, indicating a potential increase in dynamic priority and thus overall decrease the chances of that process to get rescheduled.
+### Sleeping Time (STime): 
+- The total time the process has spent sleeping (i.e., blocked and not using CPU time) since it was last scheduled. High STime decreases the RBI, potentially reducing dynamic priority which increases the chances of that process to get rescheduled with respect to others.
+### Waiting Time (WTime):
+- The total time the process has spent in the ready queue waiting to be scheduled. A process waiting for a long time may have a lower RBI as it is with minus sign in numerator so decreasing the RBI value, and decreasing the dynamic Priority and thus overall increasing priority to get scheduled.
+### Weighted Sum:
+- The weighted sum captures the overall recent behavior impact on priority.
 
-```sh
-prompt> cd src/
-prompt> make -f Makefile.test qemu-nox
-```
 
-You can suppress the repeated building of xv6 in the tests with the
-`-s` flag. This should make repeated testing faster:
+# Analysis of PBS (DP):
 
-```sh
-prompt> ./test-getreadcounts.sh -s
-```
+PBS Analysis:
+![PBS_Photo](./src/PBS.png)
 
----
 
-## Running Tests for sigalarm and sigreturn
+## Bibliography
 
-**After implementing both sigalarm and sigreturn**, do the following:
-- Make the entry for `alarmtest` in `src/Makefile` inside `UPROGS`
-- Run the command inside xv6:
-    ```sh
-    prompt> alarmtest
-    ```
+1. *ChatGPT Documentation:*
+   - [OpenAI ChatGPT Documentation](https://platform.openai.com/docs/guides/chat)
+   - [OpenAI GPT-3.5 Model Documentation](https://platform.openai.com/docs/models/gpt)
 
----
+2. *GitBook.io Guides:*
+   - [Markdown Guide on GitBook.io](https://xiayingp.gitbook.io/build_a_os/hardware-device-assembly/start-xv6-and-the-first-process)
 
-## Getting runtimes and waittimes for your schedulers
-- Run the following command in xv6:
-    ```sh
-    prompt> schedulertest
-    ```  
----
-
-## Running tests for entire xv6 OS
-- Run the following command in xv6:
-    ```sh
-    prompt> usertests
-    ```
-
----
+3. *Github Co-Pilot:*
+    - [Markdown Guide on Github-Co-Pilot Documentation](https://docs.github.com/en/copilot)
+    

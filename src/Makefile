@@ -68,11 +68,6 @@ SCHEDULER := RR
 endif
 CFLAGS+=-D$(SCHEDULER) 
 
-
-
-
-
-
 # Disable PIE when possible (for Ubuntu 16.10 toolchain)
 ifneq ($(shell $(CC) -dumpspecs 2>/dev/null | grep -e '[^f]no-pie'),)
 CFLAGS += -fno-pie -no-pie
@@ -143,9 +138,10 @@ UPROGS=\
 	$U/_wc\
 	$U/_zombie\
 	$U/_schedulertest\
+	$U/_getreadcount\
 	$U/_test_1\
 	$U/_test_2\
-	$U/_alarmtest\
+	$U/_cowtest\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)
